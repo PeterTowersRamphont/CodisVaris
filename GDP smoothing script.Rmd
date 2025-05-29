@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Import relevant datasets.
 
-GDP \<- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data0/GDP24.xls",
+GDP \<- read_excel("C:.../GDP24.xls",
 
 sheet = "SAS", col_types = c("date", "numeric"))
 
@@ -33,28 +33,28 @@ library(dplyr)
 
 
 # status: updated
-GDP <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/GDP.xls", 
+GDP <- read_excel("C:.../GDP.xls", 
      sheet = "SAS", col_types = c("date", "numeric"))
 #GDP$Date <- as.Date(as.yearqtr(GDP$Date, format = '%Y Q%q')) -1
 GDP$Date <- as.Date(GDP$Date)
 
 # satus: updated
-UR <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/UR.xls", 
+UR <- read_excel("C:.../UR.xls", 
      sheet = "SAS", col_types = c("date", "numeric"))
 UR$Date <- as.Date(UR$Date)
 
 # satus: updated
-MACRO_IND <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/datos UK.xlsX", 
+MACRO_IND <- read_excel("C:.../datos UK.xlsX", 
      sheet = "SAS", col_types = c("date", "numeric", "numeric", "numeric", "numeric"))
 MACRO_IND$Dates <- as.Date(MACRO_IND$Dates) 
 
 # satus: updated
-CPIH <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/CPIH.xls", 
+CPIH <- read_excel("C:.../CPIH.xls", 
      sheet = "SAS", col_types = c("text", "numeric"))
 CPIH$Date <- as.Date(as.yearqtr(CPIH$Date, format = '%Y Q%q')) -1
 
 # satus: updated
-GDI <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/Deuda y RBD hogares.xlsx", 
+GDI <- read_excel("C:.../Deuda y RBD hogares.xlsx", 
      sheet = "SAS", col_types = c("date", "numeric", "numeric"))
 GDI$Date <- as.Date(GDI$Date)
 ```
