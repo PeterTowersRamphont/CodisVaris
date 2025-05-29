@@ -84,7 +84,7 @@ df <- merge(x=df,y=MACRO_IND, by="Date", all.x=TRUE)
 df <- merge(x=df,y=GDI, by="Date", all.x=TRUE)
 df <- merge(x=df,y=CPIH, by="Date", all.x=TRUE)
 df <- df[order(df$Date), ]
-write_xlsx(df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/df_baseline_new.xlsx")
+write_xlsx(df, "C:.../df_baseline_new.xlsx")
 ```
 
 Compute the annual rates for GDP, employed, VAB and business income for its use in the state space models.
@@ -110,7 +110,7 @@ corr_matrix <- as.matrix(cor(df[c("GDP quarterly growth rate", "UR differences",
 
 corr_df <- as.data.frame(corr_matrix)
 
-write_xlsx(corr_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/corr_macro_new.xlsx")
+write_xlsx(corr_df, "C:.../PD_series/outputs/corr_macro_new.xlsx")
 ```
 
 Excluding COVID data from GDP. It is considered that the COVID effect goes from March 20 (pandemic breakthrough) to March 22.
@@ -122,7 +122,7 @@ corr_matrix <- as.matrix(cor(df[c("GDP quarterly growth rate 2", "UR differences
 
 corr_df <- as.data.frame(corr_matrix)
 
-write_xlsx(corr_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/corr_excl_covid_new.xlsx")
+write_xlsx(corr_df, "C:.../PD_series/outputs/corr_excl_covid_new.xlsx")
 ```
 
 It is decided to exclude the UR from the state space model given that it has a small correlation with the GDP rate and, in addition, it is against the economic theory.
@@ -131,7 +131,7 @@ It is decided to exclude the UR from the state space model given that it has a s
 #Data Preparation
 series_0=subset(df[c("Date", "GDP quarterly growth rate 2", "UR differences" ,"Employed quarterly growth rate", "Business Income quarterly growth rate")], df$Date >= "1980-09-30")
 
-write_xlsx(series_0, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/series0_new.xlsx")
+write_xlsx(series_0, "C:.../PD_series/outputs/series0_new.xlsx")
 
 series <- series_0[,-1]
 
@@ -197,7 +197,7 @@ smoothings_df <- as.data.frame(smoothings)
 smoothings_df$Date <- as.yearqtr(time_index)  
 smoothings_df <- smoothings_df[, c(ncol(smoothings_df), 1:(ncol(smoothings_df)-1))]
 
-write_xlsx(smoothings_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/smoothings_new.xlsx")
+write_xlsx(smoothings_df, "C:.../PD_series/outputs/smoothings_new.xlsx")
 
 
 ```
@@ -216,7 +216,7 @@ filterings_df <- as.data.frame(filterings)
 filterings_df$Date <- as.yearqtr(time_index)  
 filterings_df <- filterings_df[, c(ncol(filterings_df), 1:(ncol(filterings_df)-1))]
 
-write_xlsx(filterings_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/filterings_new.xlsx")
+write_xlsx(filterings_df, "C:.../PD_series/outputs/filterings_new.xlsx")
 ```
 
 ```{r}
@@ -390,7 +390,7 @@ plotting_ds <- plotting_ds %>%
 library(writexl)
 
 # Export to Excel
-write_xlsx(as.data.frame(smoothings), "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/smoothed series.xlsx")
-write_xlsx(series, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/input series.xlsx")
-write_xlsx(plotting_ds, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/Synthetic GDPs (quarterly rates) UR, Employed, Business Income.xlsx")
+write_xlsx(as.data.frame(smoothings), "C:.../PD_series/outputs/smoothed series.xlsx")
+write_xlsx(series, "C:.../PD_series/outputs/input series.xlsx")
+write_xlsx(plotting_ds, "C:.../PD_series/outputs/Synthetic GDPs (quarterly rates) UR, Employed, Business Income.xlsx")
 ```
