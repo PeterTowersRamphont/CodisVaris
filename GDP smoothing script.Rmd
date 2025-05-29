@@ -1,0 +1,396 @@
+---
+title: "UK GDP smoothing"
+author: "Adri Pérez"
+date: "4/12/2024"
+output: html_document
+
+astsa library version: install.packages("https://cran.r-project.org/src/contrib/Archive/astsa/astsa_1.12.tar.gz", repos = NULL, type = "source")
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Import relevant datasets.
+
+GDP \<- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data0/GDP24.xls",
+
+sheet = "SAS", col_types = c("date", "numeric"))
+
+#GDP\$Date \<- as.Date(as.yearqtr(GDP\$Date, format = '%Y Q%q')) -1
+
+GDP\$Date \<- as.Date(GDP\$Date)
+
+```{r}
+library(readxl)
+library(zoo)
+library(astsa)
+library(ggplot2)
+library(writexl)
+library(dplyr)
+
+
+# status: updated
+GDP <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/GDP.xls", 
+     sheet = "SAS", col_types = c("date", "numeric"))
+#GDP$Date <- as.Date(as.yearqtr(GDP$Date, format = '%Y Q%q')) -1
+GDP$Date <- as.Date(GDP$Date)
+
+# satus: updated
+UR <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/UR.xls", 
+     sheet = "SAS", col_types = c("date", "numeric"))
+UR$Date <- as.Date(UR$Date)
+
+# satus: updated
+MACRO_IND <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/datos UK.xlsX", 
+     sheet = "SAS", col_types = c("date", "numeric", "numeric", "numeric", "numeric"))
+MACRO_IND$Dates <- as.Date(MACRO_IND$Dates) 
+
+# satus: updated
+CPIH <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/CPIH.xls", 
+     sheet = "SAS", col_types = c("text", "numeric"))
+CPIH$Date <- as.Date(as.yearqtr(CPIH$Date, format = '%Y Q%q')) -1
+
+# satus: updated
+GDI <- read_excel("C:/Users/Iván/Documents/Trabajo/PD_series/data/Deuda y RBD hogares.xlsx", 
+     sheet = "SAS", col_types = c("date", "numeric", "numeric"))
+GDI$Date <- as.Date(GDI$Date)
+```
+
+Clean Macro Indicadors data.
+
+\- Rename date column
+
+\- Transform all quarterly dates to last day of month to avoid missings when merging.
+
+```{r}
+library(lubridate)
+# rename column
+names(MACRO_IND)[names(MACRO_IND) == "Dates"] <- "Date"
+# transform date
+MACRO_IND$Date <- ceiling_date(MACRO_IND$Date, "month") - days(1)
+```
+
+Join all data into a single dataset.
+
+```{r}
+# rename macro indicators date column
+options(max.print = 1e6) 
+
+df <- merge(x=GDP,y=UR, by="Date", all.x=TRUE)
+df <- merge(x=df,y=MACRO_IND, by="Date", all.x=TRUE)
+df <- merge(x=df,y=GDI, by="Date", all.x=TRUE)
+df <- merge(x=df,y=CPIH, by="Date", all.x=TRUE)
+df <- df[order(df$Date), ]
+write_xlsx(df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/df_baseline_new.xlsx")
+```
+
+Compute the annual rates for GDP, employed, VAB and business income for its use in the state space models.
+
+```{r}
+
+df["GDP quarterly growth rate"] <- c(NA, diff(log(df$GDP),1)) * 100
+df["Employed quarterly growth rate"] <- c(NA, diff(log(df$Employed),1)) * 100
+df["Business Income quarterly growth rate"] <- c(NA, diff(log(df$`Business income`),1)) * 100
+df["Gross Disposable Income quarterly growth rate"] <- c(NA, diff(log(df$GDI),1)) * 100
+df["Consumer Price Index quarterly growth rate"] <- c(NA, diff(log(df$CPIH),1)) * 100
+df["UR differences"] <- c(NA, diff(df$UR,1)) + 0.000001
+df["Consumer_confi_diff"] <- c(NA, diff(df$`Consumer confidence`,1))
+```
+
+Check the correlation structure between the variables of interest.
+
+Including COVID data in the GDP annual growth rate:
+
+```{r}
+
+corr_matrix <- as.matrix(cor(df[c("GDP quarterly growth rate", "UR differences", "Employed quarterly growth rate", "Business Income quarterly growth rate", "Consumer confidence", "Gross Disposable Income quarterly growth rate", "Consumer Price Index quarterly growth rate")], use="pairwise.complete.obs"))
+
+corr_df <- as.data.frame(corr_matrix)
+
+write_xlsx(corr_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/corr_macro_new.xlsx")
+```
+
+Excluding COVID data from GDP. It is considered that the COVID effect goes from March 20 (pandemic breakthrough) to March 22.
+
+```{r}
+df["GDP quarterly growth rate 2"] <- ifelse(df$Date >= "2020-03-31" & df$Date <= "2022-03-31", NA, df$`GDP quarterly growth rate`)
+
+corr_matrix <- as.matrix(cor(df[c("GDP quarterly growth rate 2", "UR differences" ,"Employed quarterly growth rate", "Business Income quarterly growth rate", "Consumer_confi_diff", "Gross Disposable Income quarterly growth rate", "Consumer Price Index quarterly growth rate")], use="pairwise.complete.obs"))
+
+corr_df <- as.data.frame(corr_matrix)
+
+write_xlsx(corr_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/corr_excl_covid_new.xlsx")
+```
+
+It is decided to exclude the UR from the state space model given that it has a small correlation with the GDP rate and, in addition, it is against the economic theory.
+
+```{r}
+#Data Preparation
+series_0=subset(df[c("Date", "GDP quarterly growth rate 2", "UR differences" ,"Employed quarterly growth rate", "Business Income quarterly growth rate")], df$Date >= "1980-09-30")
+
+write_xlsx(series_0, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/series0_new.xlsx")
+
+series <- series_0[,-1]
+
+N=nrow(series)
+p=ncol(series)
+y=as.matrix(series,nc=p)
+y[is.na(y)]<- 0
+
+A = array(0, dim=c(p,p,N))
+for(k in 1:N) {
+  if (y[k,1] != 0) A[1,1,k]= 1
+  if (y[k,2] != 0) A[2,2,k]= 1
+  if (y[k,3] != 0) A[3,3,k]= 1
+  if (y[k,4] != 0) A[4,4,k]= 1
+  }
+
+mu0 = matrix(y[1,], nr=p, nc=1)
+Sigma0 = diag(c(0.005, 0.005), p)
+
+Phi = diag(1, p)
+cQ = diag(c(0.5, 0.5), p)
+cR = diag(c(0.05, 0.05), p)
+
+library(astsa)
+
+em = EM1(N, y, A, mu0, Sigma0, Phi, cQ, cR, 7000, .00001)
+```
+
+```{r}
+(mu0=em$mu0)
+(Sigma0=em$Sigma0)
+(Phi=em$Phi)
+(cQ=chol(em$Q))
+(cR=chol(em$R))
+```
+
+```{r}
+y.kalman<-Ksmooth1(N,y,A,mu0,Sigma0,Phi,0,0,cQ,cR,0)
+
+p1 = 2*sqrt(y.kalman$Ps[1,1,])
+p2 = 2*sqrt(y.kalman$Ps[2,2,])
+p3 = 2*sqrt(y.kalman$Ps[3,3,])
+p4 = 2*sqrt(y.kalman$Ps[4,4,])
+
+pf1 = 2*sqrt(y.kalman$Pf[1,1,])
+pf2 = 2*sqrt(y.kalman$Pf[2,2,])
+pf3 = 2*sqrt(y.kalman$Pf[3,3,])
+pf4 = 2*sqrt(y.kalman$Pf[4,4,])
+```
+
+```{r}
+smoothings <- ts(matrix(c(y.kalman$xs),nc=p,byrow = T),start=c(1980,3),freq=4)
+original <- ts(series[,1],start=c(1980,3),freq=4)
+plot(smoothings[,1],col=1, ylim=c(-2.5,2.5))
+lines(smoothings[,1]+p1, lty=2, col=4)
+lines(smoothings[,1]-p1, lty=2, col=4)
+lines(original, lty=3, col=2)
+
+time_index <- time(smoothings)
+
+# Convert smoothings to a data frame
+smoothings_df <- as.data.frame(smoothings)
+smoothings_df$Date <- as.yearqtr(time_index)  
+smoothings_df <- smoothings_df[, c(ncol(smoothings_df), 1:(ncol(smoothings_df)-1))]
+
+write_xlsx(smoothings_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/smoothings_new.xlsx")
+
+
+```
+
+```{r}
+filterings <- ts(matrix(c(y.kalman$xf),nc=p,byrow = T),start=c(1980,3),freq=4)
+plot(filterings[,1],col=1, ylim=c(-2.5,2))
+lines(filterings[,1]+pf1, lty=2, col=4)
+lines(filterings[,1]-pf1, lty=2, col=4)
+lines(original, lty=3, col=2)
+
+time_index <- time(filterings)
+
+# Convert smoothings to a data frame
+filterings_df <- as.data.frame(filterings)
+filterings_df$Date <- as.yearqtr(time_index)  
+filterings_df <- filterings_df[, c(ncol(filterings_df), 1:(ncol(filterings_df)-1))]
+
+write_xlsx(filterings_df, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/filterings_new.xlsx")
+```
+
+```{r}
+plotting_ds <- subset(df, df$Date >= "1980-09-30")[, c("Date", "GDP quarterly growth rate")]
+plotting_ds[,"GDP quarterly growth rate smoothed"] <- smoothings[,1]
+plotting_ds[,"GDP quarterly growth rate filtered"] <- filterings[,1]
+
+
+p <- ggplot(plotting_ds) +
+  geom_line( color="#000000", aes(x=Date, y=`GDP quarterly growth rate`), ) + 
+  geom_line( color="#0096C8", aes(x=Date, y=`GDP quarterly growth rate smoothed`)) +   
+  geom_line( color="#FF8728", aes(x=Date, y=`GDP quarterly growth rate filtered`)) + 
+  xlab("Date") +
+  theme_light()
+
+p
+```
+
+```{r}
+plotting_ds["synthetic GDP"] = ifelse(plotting_ds$Date >= "2020-03-31" & plotting_ds$Date <= "2022-03-31", plotting_ds$`GDP quarterly growth rate smoothed`, plotting_ds$`GDP quarterly growth rate`)
+
+p <- ggplot(plotting_ds) +
+  geom_rect(aes(xmin = as.Date("2019-12-31"), xmax = as.Date("2022-03-31"),
+                ymin = -Inf, ymax = Inf), fill = "lightblue", alpha = 0.05) +
+  geom_area(aes(x = Date, 
+                y = ifelse(`synthetic GDP` < 0, `synthetic GDP`, 0)), 
+            fill = "red", alpha = 0.5) +  
+  geom_line( color="#006DFF", aes(x=Date, y=`synthetic GDP`)) +   
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed", size = 1) + 
+  geom_text(aes(x = as.Date("2021-03-01"), y = 1.5, label = "COVID"), 
+            color = "Black", size = 4, angle = 0, fontface="italic") +  
+  xlab("Date") +
+  ylab("GDP (quarterly growth rate)") +
+  theme_light()
+
+p
+```
+
+```{r}
+ggsave(filename = "GDP synthetic (UR & Employed & Business Income).png", plot = p, width = 8, height = 6, dpi = 300)
+```
+
+```{r}
+plotting_ds["synthetic GDP 2"] = ifelse(plotting_ds$Date >= "2020-03-31" & plotting_ds$Date <= "2022-03-31", plotting_ds$`GDP quarterly growth rate filtered`, plotting_ds$`GDP quarterly growth rate`)
+
+p <- ggplot(plotting_ds) +
+  geom_rect(aes(xmin = as.Date("2019-12-31"), xmax = as.Date("2022-03-31"),
+                ymin = -Inf, ymax = Inf), fill = "lightblue", alpha = 0.05) +
+  geom_area(aes(x = Date, 
+                y = ifelse(`synthetic GDP 2` < 0, `synthetic GDP 2`, 0)), 
+            fill = "red", alpha = 0.5) +  
+  geom_line( color="#006DFF", aes(x=Date, y=`synthetic GDP 2`)) +   
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed", size = 1) + 
+  geom_text(aes(x = as.Date("2021-03-01"), y = 1.5, label = "COVID"), 
+            color = "Black", size = 4, angle = 0, fontface="italic") +  
+  xlab("Date") +
+  ylab("GDP (quarterly growth rate)") +
+  theme_light()
+  2
+p
+
+```
+
+```{r}
+# this table goes to the report
+cor(smoothings)
+```
+
+```{r}
+cor(filterings)
+```
+
+```{r}
+cor(series, use = "pairwise.complete.obs")
+```
+
+```{r}
+series
+```
+
+```{r}
+plotting_ds["GDP annual growth rate"] <- (c(NA, NA, NA, rollapply(plotting_ds["synthetic GDP"]/100 + 1, width = 4, FUN = prod, align = "right") - 1))*100
+
+```
+
+```{r}
+p <- ggplot(subset(plotting_ds, plotting_ds$Date >= "1981-06-30")) +
+  geom_rect(aes(xmin = as.Date("2019-12-31"), xmax = as.Date("2022-03-31"),
+                ymin = -Inf, ymax = Inf), fill = "lightblue", alpha = 0.05) +
+  geom_area(aes(x = Date, 
+                y = ifelse(`GDP annual growth rate` < 0, `GDP annual growth rate`, 0)), 
+            fill = "red", alpha = 0.5) +  
+  geom_line( color="#006DFF", aes(x=Date, y=`GDP annual growth rate`)) +   
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed", size = 1) + 
+  geom_text(aes(x = as.Date("2021-03-01"), y = 4, label = "COVID"), 
+            color = "Black", size = 4, angle = 0, fontface="italic") +  
+  xlab("Date") +
+  ylab("GDP (annual growth rate)") +
+  theme_light()
+
+p
+```
+
+```{r}
+ggsave(filename = "Annual GDP synthetic (UR & Employed & Business Income).png", plot = p, width = 8, height = 6, dpi = 300)
+```
+
+```{r}
+g <- ts(plotting_ds$`synthetic GDP`,start=c(1980,3),freq=4)/100+1
+g1 <- lag(g,-1)
+g2 <- lag(g,-2)
+g3 <- lag(g,-3)
+g4 <- lag(g,-4)
+g5 <- lag(g,-5)
+g6 <- lag(g,-6)
+```
+
+```{r}
+gdp_pa <- ((1+(g2)+(g2*g1)+(g2*g1*g))/((1/(g3))+(1/(g3*g4))+(1/(g3*g4*g5))+(1/(g3*g4*g5*g6)))-1)*100
+plotting_ds["gdp_pa"] <- c(NA, NA, NA, NA, NA, NA, gdp_pa)
+```
+
+```{r}
+# add gdp pa with original GDP
+g <- ts(plotting_ds$`GDP quarterly growth rate`,start=c(1980,3),freq=4)/100+1
+g1 <- lag(g,-1)
+g2 <- lag(g,-2)
+g3 <- lag(g,-3)
+g4 <- lag(g,-4)
+g5 <- lag(g,-5)
+g6 <- lag(g,-6)
+
+gdp_pa_0 <- ((1+(g2)+(g2*g1)+(g2*g1*g))/((1/(g3))+(1/(g3*g4))+(1/(g3*g4*g5))+(1/(g3*g4*g5*g6)))-1)*100
+plotting_ds["gdp_pa_0"] <- c(NA, NA, NA, NA, NA, NA, gdp_pa_0)
+
+```
+
+```{r}
+p <- ggplot(subset(plotting_ds, plotting_ds$Date >= "1982-03-31")) +
+  geom_rect(aes(xmin = as.Date("2019-12-31"), xmax = as.Date("2022-03-31"),
+                ymin = -Inf, ymax = Inf), fill = "lightblue", alpha = 0.05) +
+  geom_area(aes(x = Date, 
+                y = ifelse(`gdp_pa` < 0, `gdp_pa`, 0)), 
+            fill = "red", alpha = 0.5) +  
+  geom_line( color="#006DFF", aes(x=Date, y=`gdp_pa`)) + 
+  geom_line(color = "black", aes(x = Date, y = `gdp_pa_0`)) +
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed", size = 1) + 
+  geom_text(aes(x = as.Date("2019-03-01"), y = 8, label = "COVID"), 
+            color = "Black", size = 4, angle = 0, fontface="italic") +  
+  xlab("Date") +
+  ylab("GDP Period Average") +
+  theme_light()
+
+p
+```
+
+```{r}
+ggsave(filename = "GDP PA synthetic (UR & Employed & Business Income).png", plot = p, width = 8, height = 6, dpi = 300)
+```
+
+```{r}
+plotting_ds <- plotting_ds %>%
+  rename(
+    "synthetic GDP quarterly growth rate (KS)" = "synthetic GDP",
+    "synthetic GDP quarterly growth rate (KF)" = "synthetic GDP 2"
+  )
+
+```
+
+```{r}
+library(writexl)
+
+# Export to Excel
+write_xlsx(as.data.frame(smoothings), "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/smoothed series.xlsx")
+write_xlsx(series, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/input series.xlsx")
+write_xlsx(plotting_ds, "C:/Users/Iván/Documents/Trabajo/PD_series/outputs/Synthetic GDPs (quarterly rates) UR, Employed, Business Income.xlsx")
+```
